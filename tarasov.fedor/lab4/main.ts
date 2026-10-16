@@ -1,17 +1,73 @@
 import {Travel} from './model.js';
 
 let travels: Travel[] = [];
+let errorTimeoutId: number | undefined;
 
 function executeAsync<T>(operation: () => T): Promise<T> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     setTimeout(() => {
-      resolve(operation());
+      try {
+        const result = operation();
+        resolve(result);
+      } catch (error) {
+        reject(error);
+      }
     }, 50);
   });
 }
 
+function showError(error: unknown): void {
+  const message =
+    error instanceof Error ? error.message : 'Произошла неизвестная ошибка';
+
+  let errorBanner = document.querySelector<HTMLElement>(
+    '[data-testid="error-message"]',
+  );
+
+  if (!errorBanner) {
+    errorBanner = document.createElement('div');
+    errorBanner.setAttribute('data-testid', 'error-message');
+    errorBanner.setAttribute('role', 'alert');
+    errorBanner.className = 'error-banner';
+
+    const main = document.querySelector('main');
+    const listContainer = document.querySelector('[data-testid="entity-list"]');
+    if (main && listContainer) {
+      main.insertBefore(errorBanner, listContainer);
+    } else {
+      document.body.prepend(errorBanner);
+    }
+  }
+
+  errorBanner.textContent = `Ошибка: ${message}`;
+  errorBanner.style.display = 'block';
+
+  if (errorTimeoutId !== undefined) {
+    clearTimeout(errorTimeoutId);
+  }
+  errorTimeoutId = window.setTimeout(() => {
+    if (errorBanner) {
+      errorBanner.style.display = 'none';
+    }
+  }, 4000);
+}
+
+function clearError(): void {
+  const errorBanner = document.querySelector<HTMLElement>(
+    '[data-testid="error-message"]',
+  );
+  if (errorBanner) {
+    errorBanner.style.display = 'none';
+    errorBanner.textContent = '';
+  }
+}
+
 function saveState(): void {
-  localStorage.setItem('travels', JSON.stringify(travels));
+  try {
+    localStorage.setItem('travels', JSON.stringify(travels));
+  } catch {
+    throw new Error('Не удалось сохранить данные в localStorage');
+  }
 }
 
 function loadState(): void {
@@ -29,6 +85,7 @@ function loadState(): void {
       );
     } catch {
       travels = [];
+      showError(new Error('Не удалось загрузить сохраненные данные'));
     }
   }
 }
@@ -62,9 +119,17 @@ function render(): void {
       removeCountryBtn.className = 'btn-small btn-remove-country';
       removeCountryBtn.addEventListener('click', () => {
         executeAsync(() => {
+          if (!travel.visitedCountries.includes(country)) {
+            throw new Error(`Страна "${country}" не найдена в списке`);
+          }
           travel.removeCountry(country);
           saveState();
-        }).then(render);
+        })
+          .then(() => {
+            clearError();
+            render();
+          })
+          .catch((err) => showError(err));
       });
 
       li.appendChild(removeCountryBtn);
@@ -80,14 +145,25 @@ function render(): void {
     addCountryForm.addEventListener('submit', (e) => {
       e.preventDefault();
       const formData = new FormData(addCountryForm);
-      const newCountry = formData.get('newCountry') as string;
+      const newCountry = (formData.get('newCountry') as string).trim();
 
-      if (newCountry.trim()) {
-        executeAsync(() => {
-          travel.addCountry(newCountry.trim());
-          saveState();
-        }).then(render);
-      }
+      executeAsync(() => {
+        if (!newCountry) {
+          throw new Error('Название страны не может быть пустым');
+        }
+        if (travel.visitedCountries.includes(newCountry)) {
+          throw new Error(
+            `Страна "${newCountry}" уже добавлена в это путешествие`,
+          );
+        }
+        travel.addCountry(newCountry);
+        saveState();
+      })
+        .then(() => {
+          clearError();
+          render();
+        })
+        .catch((err) => showError(err));
     });
 
     const deleteTravelBtn = document.createElement('button');
@@ -96,9 +172,17 @@ function render(): void {
     deleteTravelBtn.className = 'btn-delete-entity';
     deleteTravelBtn.addEventListener('click', () => {
       executeAsync(() => {
+        if (!travels.some((t) => t.id === travel.id)) {
+          throw new Error(`Путешествие с ID ${travel.id} не найдено`);
+        }
         travels = travels.filter((t) => t.id !== travel.id);
         saveState();
-      }).then(render);
+      })
+        .then(() => {
+          clearError();
+          render();
+        })
+        .catch((err) => showError(err));
     });
 
     card.appendChild(title);
@@ -124,19 +208,28 @@ document.addEventListener('DOMContentLoaded', () => {
       const formData = new FormData(form);
 
       const id = parseInt(formData.get('id') as string, 10);
-      const travelerName = formData.get('travelerName') as string;
+      const travelerName = (formData.get('travelerName') as string).trim();
 
-      if (!isNaN(id) && travelerName.trim() !== '') {
-        executeAsync(() => {
-          if (!travels.some((t) => t.id === id)) {
-            travels.push(new Travel(id, travelerName.trim()));
-            saveState();
-          }
-        }).then(() => {
+      executeAsync(() => {
+        if (isNaN(id) || id <= 0) {
+          throw new Error('ID путешествия должен быть положительным числом');
+        }
+        if (!travelerName) {
+          throw new Error('Имя путешественника не может быть пустым');
+        }
+        if (travels.some((t) => t.id === id)) {
+          throw new Error(`Путешествие с ID ${id} уже существует`);
+        }
+
+        travels.push(new Travel(id, travelerName));
+        saveState();
+      })
+        .then(() => {
+          clearError();
           form.reset();
           render();
-        });
-      }
+        })
+        .catch((err) => showError(err));
     });
   }
 });
