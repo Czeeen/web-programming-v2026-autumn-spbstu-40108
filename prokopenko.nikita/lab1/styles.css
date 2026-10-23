@@ -1,0 +1,30 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+img {
+  width: 100%;
+  height: auto;
+}
+
+@media (width >= 700px) {
+  .gallery {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (width >= 1000px) {
+  .gallery {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+}
